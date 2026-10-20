@@ -2,6 +2,8 @@
 
 Detect which language someone is speaking (107 languages) from Node.js, Bun or the browser. It runs on CPU and doesn't need Python.
 
+**[Try the live demo →](https://polvallverdu.github.io/voxlingua107/)** It uses your microphone, and everything runs in your browser.
+
 It runs SpeechBrain's [VoxLingua107 ECAPA-TDNN](https://huggingface.co/speechbrain/lang-id-voxlingua107-ecapa) model, exported to ONNX, on [ONNX Runtime](https://onnxruntime.ai). The test suite checks every result against the original PyTorch model.
 
 ```ts
@@ -231,7 +233,11 @@ bun test             # unit + model parity tests (downloads the model on first r
 bun run typecheck
 bun run test:node    # builds and runs the package under plain Node
 bun run test:browser # runs voxlingua107/web in headless Chromium (needs `bunx playwright install chromium`)
+bun run test:site    # builds the demo site and tests it in Chromium, including a fake microphone
+bun run site:dev     # builds the demo site and serves it on http://localhost:3000
 ```
+
+The demo site lives in [`site/`](site/). Every push to `main` deploys it to GitHub Pages.
 
 To regenerate the PyTorch reference outputs, see the comment at the top of [`scripts/generate-reference.py`](scripts/generate-reference.py). It needs [uv](https://docs.astral.sh/uv/).
 
