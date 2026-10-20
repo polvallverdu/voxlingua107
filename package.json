@@ -25,6 +25,8 @@
   "homepage": "https://github.com/polvallverdu/voxlingua107#readme",
   "bugs": "https://github.com/polvallverdu/voxlingua107/issues",
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -35,8 +37,15 @@
       "default": "./dist/web.js"
     }
   },
+  "typesVersions": {
+    "*": {
+      "web": [
+        "./dist/web.d.ts"
+      ]
+    }
+  },
   "bin": {
-    "voxlingua107": "./dist/cli.js"
+    "voxlingua107": "dist/cli.js"
   },
   "files": [
     "dist"
