@@ -1,7 +1,7 @@
 {
   "name": "voxlingua107",
   "version": "1.0.0",
-  "description": "Spoken language identification (107 languages) for Node.js and Bun. SpeechBrain's VoxLingua107 ECAPA-TDNN running on ONNX Runtime, CPU only, no Python.",
+  "description": "Spoken language identification (107 languages) for Node.js, Bun and the browser. SpeechBrain's VoxLingua107 ECAPA-TDNN on ONNX Runtime, no Python.",
   "keywords": [
     "language-identification",
     "language-detection",
@@ -12,7 +12,9 @@
     "speechbrain",
     "ecapa-tdnn",
     "onnx",
-    "bun"
+    "bun",
+    "browser",
+    "webassembly"
   ],
   "license": "Apache-2.0",
   "author": "Pol Vallverdu",
@@ -27,6 +29,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./web": {
+      "types": "./dist/web.d.ts",
+      "default": "./dist/web.js"
     }
   },
   "bin": {
@@ -43,14 +49,25 @@
     "typecheck": "tsc",
     "test": "bun test",
     "test:node": "bun run build && node test/node-smoke.mjs",
-    "prepublishOnly": "bun run build"
+    "prepublishOnly": "bun run build",
+    "test:browser": "bun test/browser/run.ts"
   },
   "dependencies": {
     "onnxruntime-node": "^1.30.0"
   },
+  "peerDependencies": {
+    "onnxruntime-web": "^1.30.0"
+  },
+  "peerDependenciesMeta": {
+    "onnxruntime-web": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@types/bun": "^1.4.3",
     "@types/node": "^26.6.5",
+    "onnxruntime-web": "^1.30.0",
+    "playwright": "^1.64.1",
     "typescript": "^5.9.3"
   }
 }

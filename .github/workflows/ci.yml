@@ -48,3 +48,17 @@ jobs:
       - run: bun run test:node
       - name: Check the published tarball contents
         run: npm pack --dry-run
+
+  browser:
+    name: Browser (Chromium)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/cache@v4
+        with:
+          path: .cache/model
+          key: voxlingua107-model-e2c3c3da39b99e3f
+      - run: bun install --frozen-lockfile
+      - run: bunx playwright install --with-deps chromium
+      - run: bun run test:browser

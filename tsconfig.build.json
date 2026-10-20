@@ -5,6 +5,7 @@
     "outDir": "dist",
     "rootDir": "src",
     "declaration": true,
+    "lib": ["ESNext", "DOM", "DOM.AsyncIterable"],
     "types": ["node"]
   },
   "include": ["src"]

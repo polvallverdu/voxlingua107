@@ -1,6 +1,6 @@
 # voxlingua107
 
-Detect which language someone is speaking (107 languages) from Node.js or Bun. It runs on CPU and doesn't need Python.
+Detect which language someone is speaking (107 languages) from Node.js, Bun or the browser. It runs on CPU and doesn't need Python.
 
 It runs SpeechBrain's [VoxLingua107 ECAPA-TDNN](https://huggingface.co/speechbrain/lang-id-voxlingua107-ecapa) model, exported to ONNX, on [ONNX Runtime](https://onnxruntime.ai). The test suite checks every result against the original PyTorch model.
 
@@ -23,7 +23,7 @@ bun add voxlingua107
 npm install voxlingua107
 ```
 
-Requires Node.js 20+ or Bun.
+Requires Node.js 20+ or Bun. For the browser build, also install `onnxruntime-web` (see [Browser](#browser)).
 
 ## Usage
 
@@ -154,6 +154,46 @@ lo   Lao                1.1%
 la   Latin              0.0%
 ```
 
+## Browser
+
+Import from `voxlingua107/web`. It has the same API, running on [onnxruntime-web](https://onnxruntime.ai/docs/tutorials/web/) (WebAssembly):
+
+```sh
+npm install voxlingua107 onnxruntime-web
+```
+
+```ts
+import { LanguageIdentifier } from "voxlingua107/web";
+
+const lid = await LanguageIdentifier.load({
+  onProgress: (loaded, total) => console.log(`${Math.round((loaded / total) * 100)}%`),
+});
+const result = await lid.identify(samples, { sampleRate: 48000 }); // e.g. from an AudioContext
+```
+
+- **First load downloads ~87 MB**, checks its SHA-256 with Web Crypto, and stores it in [Cache Storage](https://developer.mozilla.org/docs/Web/API/CacheStorage). Later page loads read it from the cache (about 0.1 s).
+- **Secure context required.** Web Crypto only exists on `https://` and `localhost`. On plain `http://`, pass `sha256: null` to skip verification.
+- **The `.wasm` files.** onnxruntime-web loads `ort-wasm-*.wasm` from next to its JavaScript. If your bundler doesn't serve them (you'll see a 404), copy them from `node_modules/onnxruntime-web/dist/` into your static folder, or load them from a CDN:
+
+  ```ts
+  await LanguageIdentifier.load({ wasmPaths: "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/" });
+  ```
+
+| Option (web)     | Default                             | Description                                                              |
+| ---------------- | ----------------------------------- | ------------------------------------------------------------------------ |
+| `model`          |                                     | Model bytes you already have (`ArrayBuffer`/`Uint8Array`). Nothing is fetched. |
+| `urls`           | HF mirror, then the original export | Download URLs, tried in order. Must allow CORS.                          |
+| `sha256`         | the pinned model hash               | Expected hash. `null` skips the check.                                   |
+| `cache`          | `true`                              | `false` disables Cache Storage; a string sets the cache name.            |
+| `onProgress`     |                                     | `(loaded, total) => void` download progress.                             |
+| `wasmPaths`      | onnxruntime-web's default           | Where to load the `.wasm` files from.                                    |
+| `numThreads`     | `1`                                 | WASM threads. Above 1 needs a [cross-origin isolated](https://web.dev/articles/cross-origin-isolation-guide) page. |
+| `sessionOptions` |                                     | Passed to ONNX Runtime (e.g. `{ executionProviders: ["webgpu"] }`).      |
+
+`fetchModel(options)` downloads, verifies and caches the bytes without creating a session, for example to prefetch while the user does something else.
+
+**Cloudflare Workers and other edge runtimes aren't supported.** The model needs more memory than a Worker gets (128 MB).
+
 ## Accuracy
 
 The model is SpeechBrain's VoxLingua107 ECAPA-TDNN. Its authors report a 6.7% error rate on the VoxLingua107 dev set. This package runs that model unchanged, and the tests check it against the original:
@@ -173,7 +213,15 @@ Practical notes:
 
 ## Performance
 
-CPU, single call, Apple M4 Pro: about 25 ms for 3 s of audio, 50 ms for 10 s, and 170 ms for 30 s. Loading the model takes well under a second once it's cached.
+Single call on an Apple M4 Pro:
+
+| Runtime | 3 s of audio | 10 s | 13 s | 30 s |
+| --- | --- | --- | --- | --- |
+| Node / Bun (`voxlingua107`) | 25 ms | 50 ms | | 170 ms |
+| Chrome, 1 thread (`voxlingua107/web`) | | | 1.2 s | |
+| Chrome, threads + cross-origin isolation | | | about 0.5 s | |
+
+Loading a cached model takes about 0.1 s.
 
 ## Development
 
@@ -182,6 +230,7 @@ bun install
 bun test             # unit + model parity tests (downloads the model on first run)
 bun run typecheck
 bun run test:node    # builds and runs the package under plain Node
+bun run test:browser # runs voxlingua107/web in headless Chromium (needs `bunx playwright install chromium`)
 ```
 
 To regenerate the PyTorch reference outputs, see the comment at the top of [`scripts/generate-reference.py`](scripts/generate-reference.py). It needs [uv](https://docs.astral.sh/uv/).
@@ -190,7 +239,7 @@ To regenerate the PyTorch reference outputs, see the comment at the top of [`scr
 
 Go to **Actions → Release → Run workflow** and choose `patch`, `minor`, `major` or `prerelease`. The workflow runs the tests, bumps the version, publishes to npm with provenance, pushes the tag and creates a GitHub release.
 
-One-time setup: on npmjs.com, open the package's **Settings → Trusted Publisher** and add GitHub Actions with repository `polvallverdu/voxlingua107` and workflow `release.yml`. npm can only configure that for a package that already exists. Until then, either publish `0.1.0` once by hand (`npm publish`), or add an `NPM_TOKEN` secret to the repo.
+One-time setup: on npmjs.com, open the package's **Settings → Trusted Publisher** and add GitHub Actions with repository `polvallverdu/voxlingua107` and workflow `release.yml`. npm can only configure that for a package that already exists. Until then, either publish the first version by hand (`bun publish`), or add an `NPM_TOKEN` secret to the repo.
 
 ## Credits and license
 
