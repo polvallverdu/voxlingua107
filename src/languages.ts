@@ -2,14 +2,7 @@
 // Index i is the model's output class i. The upstream codes "iw" (Hebrew) and "jw" (Javanese)
 // are obsolete/incorrect and are exposed as "he" and "jv" (see speechbrain/speechbrain#2396).
 
-export interface Language {
-  /** ISO 639 code, e.g. "en", "es", "haw". */
-  code: string;
-  /** English name as used by VoxLingua107. */
-  name: string;
-}
-
-export const LANGUAGES: readonly Language[] = [
+export const LANGUAGES = [
   { code: "ab", name: "Abkhazian" },
   { code: "af", name: "Afrikaans" },
   { code: "am", name: "Amharic" },
@@ -117,4 +110,21 @@ export const LANGUAGES: readonly Language[] = [
   { code: "yi", name: "Yiddish" },
   { code: "yo", name: "Yoruba" },
   { code: "zh", name: "Chinese" },
-];
+] as const;
+
+/** One of the 107 language codes the model can return, e.g. "en" | "es" | "haw" | ... */
+export type LanguageCode = (typeof LANGUAGES)[number]["code"];
+
+export interface Language {
+  /** ISO 639 code, e.g. "en", "es", "haw". */
+  code: LanguageCode;
+  /** English name as used by VoxLingua107. */
+  name: string;
+}
+
+const codes = new Set<string>(LANGUAGES.map((l) => l.code));
+
+/** Narrow an arbitrary string (user input, config, ...) to a `LanguageCode`. */
+export function isLanguageCode(value: string): value is LanguageCode {
+  return codes.has(value);
+}

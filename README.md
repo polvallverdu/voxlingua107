@@ -65,6 +65,19 @@ When you know the possible languages, pass `candidates`. The probabilities are r
 const result = await lid.identify(samples, { candidates: ["en", "es", "ca"] });
 ```
 
+### Typed language codes
+
+`result.code` and `candidates` use the `LanguageCode` type, a union of all 107 codes (`"en" | "es" | "haw" | ...`), so a typo is a compile error. Use `isLanguageCode()` to check strings that arrive at runtime:
+
+```ts
+import { isLanguageCode, type LanguageCode } from "voxlingua107";
+
+const voices: Partial<Record<LanguageCode, string>> = { en: "alloy", es: "nova" };
+
+const lang = process.env.DEFAULT_LANG ?? "en";
+if (!isLanguageCode(lang)) throw new Error(`Unsupported language: ${lang}`);
+```
+
 ## API
 
 ### `LanguageIdentifier.load(options?)`
@@ -98,7 +111,8 @@ Returns `{ code, name, probability, top }`, where `top` is `[{ code, name, proba
 - `lid.embed(audio, options?)`: the 256-dim language embedding (`Float32Array`).
 - `lid.run(audio, options?)`: raw outputs, `{ logits, embedding }`. `logits` are log-probabilities in `LANGUAGES` order.
 - `lid.dispose()`: frees the ONNX Runtime session.
-- `LANGUAGES`: all 107 `{ code, name }` entries.
+- `LANGUAGES`: all 107 `{ code, name }` entries, in the model's output order.
+- `LanguageCode`: union type of the 107 codes. `isLanguageCode(value)` narrows a `string` to it.
 - `decodeWav`, `resample`, `int16ToFloat32`: the audio helpers used above.
 - `resolveModel(options?)`: downloads/locates the model and returns its path, without loading it.
 

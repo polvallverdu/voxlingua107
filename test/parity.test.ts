@@ -22,7 +22,7 @@ afterAll(() => lid?.dispose());
 test("label order matches SpeechBrain's label encoder", () => {
   const renamed: Record<string, string> = { iw: "he", jw: "jv" };
   const codes = reference.labels.map((l) => l.split(": ")[0]!);
-  expect(LANGUAGES.map((l) => l.code)).toEqual(codes.map((c) => renamed[c] ?? c));
+  expect(LANGUAGES.map((l): string => l.code)).toEqual(codes.map((c) => renamed[c] ?? c));
 });
 
 describe("matches PyTorch", () => {

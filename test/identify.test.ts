@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { LanguageIdentifier, decodeWav, resample } from "../src/index.ts";
+import { LanguageIdentifier, decodeWav, isLanguageCode, resample } from "../src/index.ts";
 
 const { samples } = decodeWav(await readFile(join(import.meta.dir, "fixtures", "th_full.wav")));
 
@@ -23,6 +23,7 @@ test("candidates restrict and renormalize", async () => {
   const result = await lid.identify(samples, { candidates: ["en", "es", "fr"], topK: 10 });
   expect(result.top.map((p) => p.code).sort()).toEqual(["en", "es", "fr"]);
   expect(result.top.reduce((a, p) => a + p.probability, 0)).toBeCloseTo(1, 5);
+  // @ts-expect-error -- "xx" isn't a LanguageCode; JS callers still get a runtime error.
   await expect(lid.identify(samples, { candidates: ["xx"] })).rejects.toThrow('Unknown language code "xx"');
 });
 
@@ -45,4 +46,11 @@ test("embedding has 256 dimensions", async () => {
 
 test("rejects audio that is too short", async () => {
   await expect(lid.identify(new Float32Array(100))).rejects.toThrow("Audio too short");
+});
+
+test("isLanguageCode narrows strings", () => {
+  expect(isLanguageCode("ca")).toBe(true);
+  expect(isLanguageCode("he")).toBe(true);
+  expect(isLanguageCode("iw")).toBe(false); // exposed as "he"
+  expect(isLanguageCode("xx")).toBe(false);
 });

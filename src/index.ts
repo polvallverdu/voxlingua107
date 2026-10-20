@@ -1,10 +1,10 @@
 import * as ort from "onnxruntime-node";
 import { SAMPLE_RATE, int16ToFloat32, resample } from "./audio.ts";
-import { LANGUAGES } from "./languages.ts";
+import { LANGUAGES, type LanguageCode } from "./languages.ts";
 import { resolveModel, type ModelOptions } from "./model.ts";
 
 export { SAMPLE_RATE, decodeWav, int16ToFloat32, resample, type DecodedAudio } from "./audio.ts";
-export { LANGUAGES, type Language } from "./languages.ts";
+export { LANGUAGES, isLanguageCode, type Language, type LanguageCode } from "./languages.ts";
 export { DEFAULT_MODEL, defaultCacheDir, resolveModel, type ModelOptions } from "./model.ts";
 
 export interface LoadOptions extends ModelOptions {
@@ -27,12 +27,12 @@ export interface IdentifyOptions extends AudioOptions {
    * Only consider these language codes (e.g. the languages your app supports).
    * Probabilities are renormalized over this set.
    */
-  candidates?: readonly string[];
+  candidates?: readonly LanguageCode[];
 }
 
 export interface Prediction {
   /** ISO 639 code, e.g. "en". */
-  code: string;
+  code: LanguageCode;
   /** English name, e.g. "English". */
   name: string;
   /** Probability in [0, 1]. */
@@ -103,7 +103,7 @@ export class LanguageIdentifier {
   }
 }
 
-function candidateIndices(candidates?: readonly string[]): number[] {
+function candidateIndices(candidates?: readonly LanguageCode[]): number[] {
   if (!candidates) return LANGUAGES.map((_, i) => i);
   const indices = candidates.map((code) => {
     const i = LANGUAGES.findIndex((l) => l.code === code);
