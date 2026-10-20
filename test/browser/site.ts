@@ -1,5 +1,5 @@
-// End-to-end check of the demo site (site-dist/) in headless Chromium: the sample button and the
-// live microphone mode, with Chromium's fake mic playing the Thai test clip.
+// End-to-end check of the demo site (site-dist/) in headless Chromium: the sample button, the
+// language picker, and recording from Chromium's fake mic (which plays the Thai test clip).
 // Run with `bun run test:site` (builds the site first).
 import { join } from "node:path";
 import { chromium } from "playwright";
@@ -65,18 +65,25 @@ try {
   if (bars.join() !== "Lao (lo),Vietnamese (vi)") throw new Error(`Unexpected bars with candidates: ${bars}`);
   if ((await page.textContent("#language")) !== "Lao") throw new Error("Expected Lao with Thai excluded");
   console.log(`with candidates [lo, vi]: ${await page.textContent("#confidence")}`);
-  await page.click("#lang-all");
+  await page.click("#lang-all"); // re-analyzes the sample with all languages
+  await page.waitForFunction(() => document.querySelectorAll("#bars li").length === 5, null, { timeout: 60_000 });
 
+  // Record from Chromium's fake mic (playing the Thai clip), stop early, and check the result.
+  await page.evaluate(() => (document.getElementById("language")!.textContent = "")); // reset
   await page.click("#mic");
-  await page.waitForFunction(() => document.getElementById("status")?.textContent?.startsWith("Listening"), null, {
+  await page.waitForFunction(() => document.getElementById("status")?.textContent?.startsWith("Recording"), null, {
     timeout: 30_000,
   });
-  await page.evaluate(() => (document.getElementById("language")!.textContent = "")); // reset
-  await page.waitForFunction(() => document.getElementById("language")?.textContent === "Thai", null, {
-    timeout: 60_000,
-  });
-  console.log(`live microphone: ${await page.textContent("#confidence")}`);
-  await page.click("#mic");
+  await page.waitForTimeout(5000);
+  await page.click("#mic"); // "Stop and analyze"
+  await page.waitForFunction(
+    () => document.getElementById("status")?.textContent?.startsWith("Result for your recording"),
+    null,
+    { timeout: 60_000 },
+  );
+  if ((await page.textContent("#language")) !== "Thai") throw new Error("Recording wasn't identified as Thai");
+  if (!(await page.$("#playback audio"))) throw new Error("No playback player after recording");
+  console.log(`recording (~5 s): ${await page.textContent("#confidence")} | ${await page.textContent("#status")}`);
 
   if (modelFetches !== 1) throw new Error(`Model fetched ${modelFetches} times, expected 1`);
   if (errors.length) throw new Error(`Browser errors:\n${errors.join("\n")}`);

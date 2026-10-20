@@ -3,12 +3,6 @@ import { LANGUAGES, isLanguageCode, type LanguageCode } from "../src/languages.t
 import type { Prediction } from "../src/web.ts";
 import type { WorkerRequest, WorkerResponse } from "./worker.ts";
 
-// Live mode: analyze the last WINDOW_S seconds of mic audio, as often as the model keeps up.
-const WINDOW_S = 6;
-const MIN_S = 1.5;
-const SPEECH_RMS = 0.012; // below this the last second counts as silence
-const SMOOTHING = 0.55; // weight of the newest result in the displayed (smoothed) ranking
-
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const statusEl = $("status");
 const progressEl = $<HTMLProgressElement>("progress");
@@ -20,6 +14,7 @@ const confidenceEl = $("confidence");
 const barsEl = $("bars");
 const levelEl = $("level");
 const timingEl = $("timing");
+const playbackEl = $("playback");
 const pickerSummaryEl = $("langs-summary");
 const pickerListEl = $("lang-list");
 const pickerSearchEl = $<HTMLInputElement>("lang-search");
@@ -27,7 +22,9 @@ const chipsEl = $("lang-chips");
 
 // --- Worker ----------------------------------------------------------------------------------
 
-const worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
+// The worker's filename has a content hash (injected by scripts/site.ts), so a deploy can't pair a
+// new page with a stale cached worker.
+const worker = new Worker(new URL(`./${process.env.WORKER_FILE ?? "worker.js"}`, import.meta.url), { type: "module" });
 const pending = new Map<number, { resolve: (r: Prediction[]) => void; reject: (e: Error) => void }>();
 let nextId = 0;
 let loaded: Promise<void> | undefined;
@@ -84,7 +81,6 @@ function identify(samples: Float32Array, sampleRate: number): Promise<Prediction
 
 const STORAGE_KEY = "voxlingua107-demo:languages";
 const selected = new Set<LanguageCode>(readSelection());
-let selectionVersion = 0; // bumped on change so live mode resets its smoothing
 
 function readSelection(): LanguageCode[] {
   try {
@@ -147,9 +143,8 @@ function selectionChanged() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify([...selected]));
   } catch {}
-  selectionVersion++;
   renderSelection();
-  if (!mic && lastClip) void runClip(lastClip);
+  if (!recording && lastClip) void runClip(lastClip);
 }
 
 function renderSelection() {
@@ -200,7 +195,10 @@ function render(top: Prediction[], hint?: string) {
   );
 }
 
-// --- Microphone ------------------------------------------------------------------------------
+// --- Recording -------------------------------------------------------------------------------
+
+const RECORD_S = 10;
+const MIN_RECORD_S = 1;
 
 const TAP_WORKLET = `
 class Tap extends AudioWorkletProcessor {
@@ -216,114 +214,116 @@ class Tap extends AudioWorkletProcessor {
 }
 registerProcessor("tap", Tap);`;
 
-let mic: { ctx: AudioContext; stream: MediaStream } | undefined;
+let recording: { finish: () => void } | undefined;
 
 micBtn.onclick = async () => {
-  if (mic) return stopMic();
+  if (recording) return recording.finish();
   micBtn.disabled = true;
   try {
-    // Ask for the mic while the model downloads.
-    const [stream] = await Promise.all([
-      navigator.mediaDevices.getUserMedia({
-        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: false, autoGainControl: true },
-      }),
-      loadModel(),
-    ]);
-    await startMic(stream);
+    // Start downloading the model while the user records.
+    void loadModel().catch((err: Error) => setStatus(`Couldn't load the model: ${err.message}`));
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: false, autoGainControl: true },
+    });
+    latestRun++; // drop results of analyses still running from before the recording
+    const clip = await record(stream);
+    if (clip.samples.length < clip.sampleRate * MIN_RECORD_S) {
+      setStatus("That was too short. Record at least a couple of seconds of speech.");
+      return;
+    }
+    showPlayback(clip);
+    lastClip = clip;
+    await loadModel();
+    await runClip(clip);
   } catch (err) {
-    setStatus(`Couldn't start: ${(err as Error).message}`);
+    setStatus(`Couldn't record: ${(err as Error).message}`);
   } finally {
+    recording = undefined;
     micBtn.disabled = false;
+    micBtn.textContent = `Record ${RECORD_S} seconds`;
+    micBtn.classList.remove("live");
+    levelEl.style.width = "0";
+    levelEl.parentElement!.hidden = true;
   }
 };
 
-async function startMic(stream: MediaStream) {
+/** Record up to RECORD_S seconds from the mic. Resolves when time is up or `recording.finish()` is called. */
+async function record(stream: MediaStream): Promise<Clip> {
   // Use the device's native rate (Firefox can't mix rates); the library resamples to 16 kHz.
   const ctx = new AudioContext();
-  const rate = ctx.sampleRate;
+  const sampleRate = ctx.sampleRate;
   await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([TAP_WORKLET], { type: "text/javascript" })));
   const tap = new AudioWorkletNode(ctx, "tap");
   const mute = new GainNode(ctx, { gain: 0 }); // keeps the graph pulling without playing the mic back
   ctx.createMediaStreamSource(stream).connect(tap).connect(mute).connect(ctx.destination);
-  mic = { ctx, stream };
 
-  const ring = new Float32Array(rate * WINDOW_S);
-  let write = 0;
-  let filled = 0;
+  const chunks: Float32Array[] = [];
+  let length = 0;
   let level = 0;
   tap.port.onmessage = ({ data }: MessageEvent<Float32Array>) => {
-    let sum = 0;
-    for (const s of data) {
-      ring[write] = s;
-      write = (write + 1) % ring.length;
-      sum += s * s;
-    }
-    filled = Math.min(ring.length, filled + data.length);
-    level = Math.max(Math.sqrt(sum / data.length), level * 0.85);
+    chunks.push(data);
+    length += data.length;
+    level = Math.max(Math.sqrt(data.reduce((a, s) => a + s * s, 0) / data.length), level * 0.85);
   };
 
-  const latest = (n: number) => {
-    const out = new Float32Array(n);
-    for (let i = 0; i < n; i++) out[i] = ring[(write - n + i + ring.length) % ring.length]!;
-    return out;
-  };
-  micBtn.textContent = "Stop microphone";
+  micBtn.disabled = false;
+  levelEl.parentElement!.hidden = false;
+  micBtn.textContent = "Stop and analyze";
   micBtn.classList.add("live");
-  setStatus("Listening… speak in any language.");
 
-  const meter = () => {
-    if (mic?.ctx !== ctx) return;
-    levelEl.style.width = `${Math.min(100, level * 400)}%`;
-    requestAnimationFrame(meter);
-  };
-  meter();
+  await new Promise<void>((resolve) => {
+    const started = performance.now();
+    const tick = () => {
+      if (!recording) return;
+      const elapsed = (performance.now() - started) / 1000;
+      if (elapsed >= RECORD_S) return recording.finish();
+      setStatus(`Recording… ${Math.ceil(RECORD_S - elapsed)} s left. Speak normally.`);
+      levelEl.style.width = `${Math.min(100, level * 400)}%`;
+      requestAnimationFrame(tick);
+    };
+    recording = { finish: resolve };
+    tick();
+  });
+  recording = undefined;
 
-  void listen(ctx, rate, latest, () => filled);
-}
-
-async function listen(
-  ctx: AudioContext,
-  rate: number,
-  latest: (n: number) => Float32Array,
-  filled: () => number,
-) {
-  const rms = (x: Float32Array) => Math.sqrt(x.reduce((a, s) => a + s * s, 0) / x.length);
-  const smoothed = new Map<string, Prediction>();
-  let version = selectionVersion;
-  while (mic?.ctx === ctx) {
-    await new Promise((r) => setTimeout(r, 250));
-    if (filled() < rate * MIN_S) continue;
-    if (rms(latest(rate)) < SPEECH_RMS) {
-      setStatus("Listening… (silence)");
-      continue;
-    }
-    setStatus("Listening…");
-    const top = await identify(latest(filled()), rate);
-    if (mic?.ctx !== ctx) break;
-    if (version !== selectionVersion) {
-      // Languages changed: start over instead of mixing old and new rankings.
-      version = selectionVersion;
-      smoothed.clear();
-    }
-
-    // Exponential moving average over results so the display doesn't flicker.
-    for (const p of smoothed.values()) p.probability *= 1 - SMOOTHING;
-    for (const p of top) {
-      const prev = smoothed.get(p.code);
-      smoothed.set(p.code, { ...p, probability: (prev?.probability ?? 0) + SMOOTHING * p.probability });
-    }
-    render([...smoothed.values()].sort((a, b) => b.probability - a.probability).slice(0, 5));
+  stream.getTracks().forEach((t) => t.stop());
+  await ctx.close();
+  const samples = new Float32Array(length);
+  let offset = 0;
+  for (const c of chunks) {
+    samples.set(c, offset);
+    offset += c.length;
   }
+  return { samples, sampleRate, label: "your recording" };
 }
 
-function stopMic() {
-  mic?.stream.getTracks().forEach((t) => t.stop());
-  void mic?.ctx.close();
-  mic = undefined;
-  levelEl.style.width = "0";
-  micBtn.textContent = "Start microphone";
-  micBtn.classList.remove("live");
-  setStatus("Stopped.");
+/** Let the user listen to what was analyzed. */
+function showPlayback(clip: Clip) {
+  const old = playbackEl.querySelector("audio")?.src;
+  if (old) URL.revokeObjectURL(old);
+  const audio = document.createElement("audio");
+  audio.controls = true;
+  audio.src = URL.createObjectURL(encodeWav(clip.samples, clip.sampleRate));
+  playbackEl.replaceChildren(audio);
+}
+
+function encodeWav(samples: Float32Array, sampleRate: number): Blob {
+  const view = new DataView(new ArrayBuffer(44 + samples.length * 2));
+  const str = (o: number, s: string) => [...s].forEach((c, i) => view.setUint8(o + i, c.charCodeAt(0)));
+  str(0, "RIFF");
+  view.setUint32(4, 36 + samples.length * 2, true);
+  str(8, "WAVEfmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, 1, true); // mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  str(36, "data");
+  view.setUint32(40, samples.length * 2, true);
+  samples.forEach((s, i) => view.setInt16(44 + i * 2, Math.max(-1, Math.min(1, s)) * 32767, true));
+  return new Blob([view.buffer], { type: "audio/wav" });
 }
 
 // --- Files -----------------------------------------------------------------------------------
@@ -335,17 +335,21 @@ interface Clip {
 }
 let lastClip: Clip | undefined; // re-analyzed when the language selection changes
 
+let latestRun = 0;
+
 async function runClip(clip: Clip) {
+  const run = ++latestRun;
   setStatus(`Analyzing ${clip.label}…`);
   // identify() transfers the buffer to the worker, so send a copy.
-  render(await identify(clip.samples.slice(), clip.sampleRate));
+  const top = await identify(clip.samples.slice(), clip.sampleRate);
+  if (run !== latestRun) return; // a newer analysis (other clip or language selection) superseded this one
+  render(top);
   const seconds = (clip.samples.length / clip.sampleRate).toFixed(1);
   setStatus(`Result for ${clip.label} (${seconds} s analyzed).`);
 }
 
 async function identifyBuffer(data: ArrayBuffer, label: string) {
   try {
-    if (mic) stopMic();
     await loadModel();
     setStatus(`Analyzing ${label}…`);
     // decodeAudioData handles wav, mp3, ogg, m4a, ... (whatever the browser supports).

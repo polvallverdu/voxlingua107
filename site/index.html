@@ -6,7 +6,7 @@
     <title>voxlingua107 — spoken language ID</title>
     <meta
       name="description"
-      content="Detect which of 107 languages someone is speaking, live from your microphone, in the browser. Also for Node.js and Bun."
+      content="Detect which of 107 languages someone is speaking from a microphone recording, in the browser. Also for Node.js and Bun."
     />
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗣️</text></svg>" />
     <style>
@@ -210,6 +210,9 @@
         font-size: 0.85rem;
         margin: 8px 0 0;
       }
+      .meter[hidden] {
+        display: none;
+      }
       .meter {
         height: 6px;
         border-radius: 3px;
@@ -231,6 +234,10 @@
         width: 100%;
         margin-top: 8px;
         accent-color: var(--accent);
+      }
+      .playback audio {
+        width: 100%;
+        margin-top: 14px;
       }
       #bars {
         list-style: none;
@@ -348,7 +355,7 @@
         <div id="confidence">in any language</div>
 
         <div class="controls">
-          <button id="mic">Start microphone</button>
+          <button id="mic">Record 10 seconds</button>
           <button id="sample">Try a sample (Thai)</button>
           <label class="file">Upload audio<input id="file" type="file" accept="audio/*,video/*" /></label>
         </div>
@@ -369,16 +376,17 @@
             Tip: pick the languages you expect. Choosing among a few is much more accurate than among all 107.
           </p>
         </div>
-        <div class="meter" aria-hidden="true"><div id="level"></div></div>
+        <div class="meter" aria-hidden="true" hidden><div id="level"></div></div>
         <p id="status">The model (87 MB) downloads the first time you use it and is cached after that.</p>
         <progress id="progress" hidden></progress>
 
+        <div id="playback" class="playback"></div>
         <ol id="bars"></ol>
         <p id="timing"></p>
       </section>
       <p class="note">
-        Live mode looks at the last 6 seconds of audio. Accuracy drops on clips under about 3 seconds, so keep talking
-        for a moment.
+        Record yourself for up to 10 seconds, then the clip is analyzed in your browser. Accuracy drops on clips under
+        about 3 seconds, so keep talking for a while.
       </p>
 
       <h2 id="docs">Docs</h2>

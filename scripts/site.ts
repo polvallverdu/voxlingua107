@@ -2,24 +2,35 @@
 //   bun run site         build
 //   bun run site:dev     build and serve on http://localhost:3000
 import { copyFile, readdir, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 const root = join(import.meta.dir, "..");
 const outdir = join(root, "site-dist");
 
 await rm(outdir, { recursive: true, force: true });
+const common = { outdir, target: "browser", minify: true } as const;
+
+// The worker gets a content-hashed name so browsers can't pair a new page with a stale cached
+// worker (GitHub Pages caches files for 10 minutes). The page learns the name via `define`.
+const workerBuild = await Bun.build({
+  ...common,
+  entrypoints: [join(root, "site", "worker.ts")],
+  naming: "[name]-[hash].[ext]",
+});
+if (!workerBuild.success) throw new AggregateError(workerBuild.logs, "Worker build failed");
+const workerFile = basename(workerBuild.outputs.find((o) => o.kind === "entry-point")!.path);
+
 const build = await Bun.build({
-  entrypoints: [join(root, "site", "index.html"), join(root, "site", "worker.ts")],
-  outdir,
-  target: "browser",
-  minify: true,
+  ...common,
+  entrypoints: [join(root, "site", "index.html")],
   // Relative URLs: the site is served from a subpath (/voxlingua107/) on GitHub Pages.
   publicPath: "./",
   naming: { entry: "[name].[ext]", chunk: "[name]-[hash].[ext]", asset: "[name]-[hash].[ext]" },
+  define: { "process.env.WORKER_FILE": JSON.stringify(workerFile) },
 });
 if (!build.success) throw new AggregateError(build.logs, "Site build failed");
 
-// onnxruntime-web loads its .wasm from next to the script that imports it (worker.js). The default
+// onnxruntime-web loads its .wasm from next to the script that imports it (the worker). The default
 // bundle uses the WebGPU-capable "jsep" build.
 const ortDist = join(root, "node_modules", "onnxruntime-web", "dist");
 const wasm = "ort-wasm-simd-threaded.jsep.wasm";
