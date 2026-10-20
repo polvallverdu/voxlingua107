@@ -1,3 +1,5 @@
+// Imported from languages.ts (not web.ts) so the page bundle doesn't include onnxruntime-web.
+import { LANGUAGES, isLanguageCode, type LanguageCode } from "../src/languages.ts";
 import type { Prediction } from "../src/web.ts";
 import type { WorkerRequest, WorkerResponse } from "./worker.ts";
 
@@ -18,6 +20,10 @@ const confidenceEl = $("confidence");
 const barsEl = $("bars");
 const levelEl = $("level");
 const timingEl = $("timing");
+const pickerSummaryEl = $("langs-summary");
+const pickerListEl = $("lang-list");
+const pickerSearchEl = $<HTMLInputElement>("lang-search");
+const chipsEl = $("lang-chips");
 
 // --- Worker ----------------------------------------------------------------------------------
 
@@ -65,9 +71,112 @@ function identify(samples: Float32Array, sampleRate: number): Promise<Prediction
   const id = nextId++;
   return new Promise((resolve, reject) => {
     pending.set(id, { resolve, reject });
-    worker.postMessage({ type: "identify", id, samples, sampleRate } satisfies WorkerRequest, [samples.buffer]);
+    const candidates = selected.size ? [...selected] : undefined;
+    worker.postMessage({ type: "identify", id, samples, sampleRate, candidates } satisfies WorkerRequest, [
+      samples.buffer,
+    ]);
   });
 }
+
+// --- Language picker -----------------------------------------------------------------------
+// Choosing among a few expected languages (the `candidates` option) is much more accurate than
+// among all 107.
+
+const STORAGE_KEY = "voxlingua107-demo:languages";
+const selected = new Set<LanguageCode>(readSelection());
+let selectionVersion = 0; // bumped on change so live mode resets its smoothing
+
+function readSelection(): LanguageCode[] {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "[]") as string[];
+    return saved.filter(isLanguageCode);
+  } catch {
+    return [];
+  }
+}
+
+const byName = [...LANGUAGES].sort((a, b) => a.name.localeCompare(b.name));
+const checkboxes = new Map<LanguageCode, HTMLInputElement>();
+pickerListEl.replaceChildren(
+  ...byName.map((lang) => {
+    const label = document.createElement("label");
+    label.dataset.search = `${lang.name} ${lang.code}`.toLowerCase();
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.value = lang.code;
+    box.onchange = () => {
+      if (box.checked) selected.add(lang.code);
+      else selected.delete(lang.code);
+      selectionChanged();
+    };
+    checkboxes.set(lang.code, box);
+    label.append(box, ` ${lang.name} `);
+    const code = document.createElement("span");
+    code.className = "code";
+    code.textContent = lang.code;
+    label.append(code);
+    return label;
+  }),
+);
+
+pickerSearchEl.oninput = () => {
+  const q = pickerSearchEl.value.trim().toLowerCase();
+  for (const label of pickerListEl.children as HTMLCollectionOf<HTMLElement>) {
+    // Match the start of any word in the name, or the code ("ser" -> Serbian, "es" -> Spanish).
+    label.hidden = !!q && !label.dataset.search!.split(" ").some((word) => word.startsWith(q));
+  }
+};
+
+$("lang-browser").onclick = () => {
+  // "en-US" -> "en"; Norwegian Bokmål is "no" in VoxLingua107.
+  const codes = navigator.languages
+    .map((l) => l.split("-")[0]!.toLowerCase())
+    .map((c) => (c === "nb" ? "no" : c))
+    .filter(isLanguageCode);
+  if (!codes.length) return setStatus("None of your browser languages are in the list; pick them by hand.");
+  codes.forEach((c) => selected.add(c));
+  selectionChanged();
+};
+
+$("lang-all").onclick = () => {
+  selected.clear();
+  selectionChanged();
+};
+
+function selectionChanged() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify([...selected]));
+  } catch {}
+  selectionVersion++;
+  renderSelection();
+  if (!mic && lastClip) void runClip(lastClip);
+}
+
+function renderSelection() {
+  for (const [code, box] of checkboxes) box.checked = selected.has(code);
+  const names = byName.filter((l) => selected.has(l.code));
+  pickerSummaryEl.textContent =
+    names.length === 0
+      ? "all 107"
+      : names.length === 1
+        ? `${names[0]!.name} only (pick at least 2)`
+        : `${names.length} selected`;
+  chipsEl.replaceChildren(
+    ...names.map((lang) => {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "chip";
+      chip.title = `Remove ${lang.name}`;
+      chip.textContent = `${lang.name} ×`;
+      chip.onclick = () => {
+        selected.delete(lang.code);
+        selectionChanged();
+      };
+      return chip;
+    }),
+  );
+}
+renderSelection();
 
 // --- Rendering -------------------------------------------------------------------------------
 
@@ -180,6 +289,7 @@ async function listen(
 ) {
   const rms = (x: Float32Array) => Math.sqrt(x.reduce((a, s) => a + s * s, 0) / x.length);
   const smoothed = new Map<string, Prediction>();
+  let version = selectionVersion;
   while (mic?.ctx === ctx) {
     await new Promise((r) => setTimeout(r, 250));
     if (filled() < rate * MIN_S) continue;
@@ -190,6 +300,11 @@ async function listen(
     setStatus("Listening…");
     const top = await identify(latest(filled()), rate);
     if (mic?.ctx !== ctx) break;
+    if (version !== selectionVersion) {
+      // Languages changed: start over instead of mixing old and new rankings.
+      version = selectionVersion;
+      smoothed.clear();
+    }
 
     // Exponential moving average over results so the display doesn't flicker.
     for (const p of smoothed.values()) p.probability *= 1 - SMOOTHING;
@@ -213,6 +328,21 @@ function stopMic() {
 
 // --- Files -----------------------------------------------------------------------------------
 
+interface Clip {
+  samples: Float32Array;
+  sampleRate: number;
+  label: string;
+}
+let lastClip: Clip | undefined; // re-analyzed when the language selection changes
+
+async function runClip(clip: Clip) {
+  setStatus(`Analyzing ${clip.label}…`);
+  // identify() transfers the buffer to the worker, so send a copy.
+  render(await identify(clip.samples.slice(), clip.sampleRate));
+  const seconds = (clip.samples.length / clip.sampleRate).toFixed(1);
+  setStatus(`Result for ${clip.label} (${seconds} s analyzed).`);
+}
+
 async function identifyBuffer(data: ArrayBuffer, label: string) {
   try {
     if (mic) stopMic();
@@ -227,8 +357,8 @@ async function identifyBuffer(data: ArrayBuffer, label: string) {
       const ch = audio.getChannelData(c);
       for (let i = 0; i < n; i++) mono[i]! += ch[i]! / audio.numberOfChannels;
     }
-    render(await identify(mono, audio.sampleRate));
-    setStatus(`Result for ${label} (${seconds.toFixed(1)} s analyzed).`);
+    lastClip = { samples: mono, sampleRate: audio.sampleRate, label };
+    await runClip(lastClip);
   } catch (err) {
     setStatus(`Couldn't analyze ${label}: ${(err as Error).message}`);
   }

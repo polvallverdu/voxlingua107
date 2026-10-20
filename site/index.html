@@ -129,6 +129,87 @@
       .file input {
         display: none;
       }
+      .langs {
+        margin: 0 0 16px;
+      }
+      .langs summary {
+        cursor: pointer;
+        font-weight: 500;
+        padding: 4px 0;
+      }
+      .langs-panel {
+        margin-top: 10px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 12px;
+      }
+      .langs-tools {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+      .langs-tools input {
+        flex: 1 1 180px;
+        min-width: 0;
+        font: inherit;
+        padding: 8px 12px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: var(--bg);
+        color: var(--text);
+      }
+      .langs-tools button {
+        padding: 8px 12px;
+        font-weight: 500;
+      }
+      .lang-list {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+        gap: 2px 12px;
+        max-height: 240px;
+        overflow-y: auto;
+        font-size: 0.92rem;
+      }
+      .lang-list label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 3px 0;
+        cursor: pointer;
+      }
+      .lang-list label[hidden] {
+        display: none;
+      }
+      .lang-list input {
+        accent-color: var(--accent);
+      }
+      .lang-list .code {
+        color: var(--muted);
+        font-size: 0.8rem;
+      }
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 8px;
+      }
+      .chips:empty {
+        display: none;
+      }
+      .chip {
+        padding: 3px 10px;
+        font-size: 0.85rem;
+        font-weight: 500;
+        border-radius: 999px;
+        background: var(--accent-soft);
+        border-color: transparent;
+      }
+      .hint {
+        color: var(--muted);
+        font-size: 0.85rem;
+        margin: 8px 0 0;
+      }
       .meter {
         height: 6px;
         border-radius: 3px;
@@ -270,6 +351,23 @@
           <button id="mic">Start microphone</button>
           <button id="sample">Try a sample (Thai)</button>
           <label class="file">Upload audio<input id="file" type="file" accept="audio/*,video/*" /></label>
+        </div>
+        <div class="langs">
+          <details id="langs">
+            <summary>Languages: <strong id="langs-summary">all 107</strong></summary>
+            <div class="langs-panel">
+              <div class="langs-tools">
+                <input id="lang-search" type="search" placeholder="Search languages…" aria-label="Search languages" />
+                <button type="button" id="lang-browser">My browser languages</button>
+                <button type="button" id="lang-all">Clear (all 107)</button>
+              </div>
+              <div id="lang-list" class="lang-list"></div>
+            </div>
+          </details>
+          <div id="lang-chips" class="chips"></div>
+          <p class="hint">
+            Tip: pick the languages you expect. Choosing among a few is much more accurate than among all 107.
+          </p>
         </div>
         <div class="meter" aria-hidden="true"><div id="level"></div></div>
         <p id="status">The model (87 MB) downloads the first time you use it and is cached after that.</p>

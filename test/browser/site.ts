@@ -56,6 +56,17 @@ try {
   });
   console.log(`sample button: ${await page.textContent("#confidence")}`);
 
+  // Language picker: excluding Thai, the same clip should be re-analyzed and come out as Lao.
+  await page.click("#langs summary");
+  await page.check('#lang-list input[value="lo"]');
+  await page.check('#lang-list input[value="vi"]');
+  await page.waitForFunction(() => document.querySelectorAll("#bars li").length === 2, null, { timeout: 60_000 });
+  const bars = await page.$$eval("#bars .name", (els) => els.map((e) => e.textContent));
+  if (bars.join() !== "Lao (lo),Vietnamese (vi)") throw new Error(`Unexpected bars with candidates: ${bars}`);
+  if ((await page.textContent("#language")) !== "Lao") throw new Error("Expected Lao with Thai excluded");
+  console.log(`with candidates [lo, vi]: ${await page.textContent("#confidence")}`);
+  await page.click("#lang-all");
+
   await page.click("#mic");
   await page.waitForFunction(() => document.getElementById("status")?.textContent?.startsWith("Listening"), null, {
     timeout: 30_000,
