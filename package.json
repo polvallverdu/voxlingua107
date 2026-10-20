@@ -1,0 +1,33 @@
+{
+  "name": "voxlingua107",
+  "version": "0.1.0",
+  "description": "Spoken language identification (107 languages) for Node.js and Bun. SpeechBrain's VoxLingua107 ECAPA-TDNN running on ONNX Runtime, CPU only, no Python.",
+  "keywords": ["language-identification", "language-detection", "spoken-language", "speech", "audio", "voxlingua107", "speechbrain", "ecapa-tdnn", "onnx", "bun"],
+  "license": "Apache-2.0",
+  "author": "Pol Vallverdu",
+  "repository": { "type": "git", "url": "git+https://github.com/polvallverdu/voxlingua107.git" },
+  "homepage": "https://github.com/polvallverdu/voxlingua107#readme",
+  "bugs": "https://github.com/polvallverdu/voxlingua107/issues",
+  "type": "module",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" }
+  },
+  "bin": { "voxlingua107": "./dist/cli.js" },
+  "files": ["dist"],
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "typecheck": "tsc",
+    "test": "bun test",
+    "test:node": "bun run build && node test/node-smoke.mjs",
+    "prepublishOnly": "bun run build"
+  },
+  "dependencies": {
+    "onnxruntime-node": "^1.30.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.3",
+    "@types/node": "^26.6.5",
+    "typescript": "^5.9.3"
+  }
+}
