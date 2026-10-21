@@ -39,6 +39,8 @@ export interface WebLoadOptions extends FetchModelOptions {
   numThreads?: number;
   /** Passed to `ort.InferenceSession.create` (e.g. `{ executionProviders: ["webgpu"] }`). */
   sessionOptions?: ort.InferenceSession.SessionOptions;
+  /** Run one dummy inference before returning, so the first `identify` is fast. Default false. */
+  warmup?: boolean;
 }
 
 /** Spoken language identification for 107 languages, in the browser (WebAssembly). */
@@ -52,7 +54,9 @@ export class LanguageIdentifier extends LanguageIdentifierBase {
         ? options.model
         : new Uint8Array(options.model)
       : await fetchModel(options);
-    return new LanguageIdentifier(await ort.InferenceSession.create(model, options.sessionOptions), ort.Tensor);
+    const lid = new LanguageIdentifier(await ort.InferenceSession.create(model, options.sessionOptions), ort.Tensor);
+    if (options.warmup) await lid.warmup();
+    return lid;
   }
 }
 

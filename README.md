@@ -95,6 +95,7 @@ Loads the model and returns a `LanguageIdentifier`. Load it once and reuse it. C
 | `sha256`         | the pinned model hash                      | Expected hash of the download. `null` skips the check.          |
 | `onProgress`     |                                            | `(loaded, total) => void` download progress.                    |
 | `sessionOptions` |                                            | Passed to ONNX Runtime (e.g. `{ intraOpNumThreads: 2 }`).       |
+| `warmup`         | `false`                                    | Run one dummy inference before returning, so the first `identify` is fast. |
 
 ### `lid.identify(audio, options?)` → `Promise<IdentifyResult>`
 
@@ -105,11 +106,19 @@ Loads the model and returns a `LanguageIdentifier`. Load it once and reuse it. C
 | `sampleRate` | `16000` | Sample rate of `audio`. Resampled if not 16 kHz. |
 | `topK`       | `5`     | Number of predictions in `top`.                 |
 | `candidates` | all     | Restrict to these language codes.               |
+| `maxSeconds` | all     | Only use the first `maxSeconds` of `audio`.     |
 
-Returns `{ code, name, probability, top }`, where `top` is `[{ code, name, probability }, ...]` sorted best first.
+Returns `{ code, name, probability, top, probabilities }`, where `top` is `[{ code, name, probability }, ...]` sorted best first and `probabilities` maps every language code to its probability (0 for languages excluded by `candidates`):
+
+```ts
+const { probabilities, top } = await lid.identify(samples, { maxSeconds: 10 });
+const basque = probabilities.eu;
+const margin = top[0].probability - top[1].probability;
+```
 
 ### Also exported
 
+- `lid.warmup()`: runs one inference on silence (what `load({ warmup: true })` does).
 - `lid.embed(audio, options?)`: the 256-dim language embedding (`Float32Array`).
 - `lid.run(audio, options?)`: raw outputs, `{ logits, embedding }`. `logits` are log-probabilities in `LANGUAGES` order.
 - `lid.dispose()`: frees the ONNX Runtime session.
@@ -191,6 +200,7 @@ const result = await lid.identify(samples, { sampleRate: 48000 }); // e.g. from 
 | `wasmPaths`      | onnxruntime-web's default           | Where to load the `.wasm` files from.                                    |
 | `numThreads`     | `1`                                 | WASM threads. Above 1 needs a [cross-origin isolated](https://web.dev/articles/cross-origin-isolation-guide) page. |
 | `sessionOptions` |                                     | Passed to ONNX Runtime (e.g. `{ executionProviders: ["webgpu"] }`).      |
+| `warmup`         | `false`                             | Run one dummy inference before returning.                                |
 
 `fetchModel(options)` downloads, verifies and caches the bytes without creating a session, for example to prefetch while the user does something else.
 

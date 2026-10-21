@@ -9,6 +9,8 @@ export type AudioInput = Float32Array | Int16Array;
 export interface AudioOptions {
   /** Sample rate of the input. Anything other than 16000 is resampled. Default 16000. */
   sampleRate?: number;
+  /** Only use the first `maxSeconds` of the audio. Default: all of it. */
+  maxSeconds?: number;
 }
 
 export interface IdentifyOptions extends AudioOptions {
@@ -33,6 +35,8 @@ export interface Prediction {
 export interface IdentifyResult extends Prediction {
   /** The `topK` most likely languages, best first (the first one is the result itself). */
   top: Prediction[];
+  /** Probability of every language by code. Languages excluded by `candidates` are 0. */
+  probabilities: Record<LanguageCode, number>;
 }
 
 export interface ModelOutput {
@@ -67,12 +71,17 @@ export class LanguageIdentifierBase {
     let sum = 0;
     for (const i of indices) sum += Math.exp(logits[i]! - max);
 
+    const probabilities = Object.fromEntries(LANGUAGES.map((l) => [l.code, 0])) as Record<LanguageCode, number>;
     const ranked = indices
-      .map((i) => ({ ...LANGUAGES[i]!, probability: Math.exp(logits[i]! - max) / sum }))
+      .map((i) => {
+        const probability = Math.exp(logits[i]! - max) / sum;
+        probabilities[LANGUAGES[i]!.code] = probability;
+        return { ...LANGUAGES[i]!, probability };
+      })
       .sort((a, b) => b.probability - a.probability);
 
     const top = ranked.slice(0, Math.max(1, options.topK ?? 5));
-    return { ...top[0]!, top };
+    return { ...top[0]!, top, probabilities };
   }
 
   /** The 256-dim language embedding (useful for clustering or similarity). */
@@ -82,8 +91,13 @@ export class LanguageIdentifierBase {
 
   /** Raw model outputs: per-class log-probabilities (in `LANGUAGES` order) and the embedding. */
   async run(audio: AudioInput, options: AudioOptions = {}): Promise<ModelOutput> {
+    const sampleRate = options.sampleRate ?? SAMPLE_RATE;
+    if (options.maxSeconds !== undefined) {
+      if (!(options.maxSeconds > 0)) throw new Error("`maxSeconds` must be a positive number");
+      audio = audio.subarray(0, Math.round(options.maxSeconds * sampleRate));
+    }
     let samples = audio instanceof Int16Array ? int16ToFloat32(audio) : audio;
-    samples = resample(samples, options.sampleRate ?? SAMPLE_RATE, SAMPLE_RATE);
+    samples = resample(samples, sampleRate, SAMPLE_RATE);
     if (samples.length < SAMPLE_RATE / 10) {
       throw new Error(`Audio too short (${samples.length} samples at 16 kHz); need at least 0.1 s`);
     }
@@ -94,6 +108,11 @@ export class LanguageIdentifierBase {
       logits: out.logits!.data as Float32Array,
       embedding: out.embedding!.data as Float32Array,
     };
+  }
+
+  /** Run one inference on 1 s of silence, so the first real call doesn't pay ONNX Runtime's startup cost. */
+  async warmup(): Promise<void> {
+    await this.run(new Float32Array(SAMPLE_RATE));
   }
 
   /** Release the ONNX Runtime session. */

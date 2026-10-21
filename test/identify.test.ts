@@ -27,6 +27,38 @@ test("candidates restrict and renormalize", async () => {
   await expect(lid.identify(samples, { candidates: ["xx"] })).rejects.toThrow('Unknown language code "xx"');
 });
 
+test("probabilities are keyed by language code", async () => {
+  const result = await lid.identify(samples, { topK: 2 });
+  expect(Object.keys(result.probabilities)).toHaveLength(107);
+  expect(result.probabilities.th).toBe(result.probability);
+  expect(result.probabilities[result.top[1]!.code]).toBe(result.top[1]!.probability);
+  expect(Object.values(result.probabilities).reduce((a, p) => a + p, 0)).toBeCloseTo(1, 5);
+
+  const restricted = await lid.identify(samples, { candidates: ["en", "es"] });
+  expect(restricted.probabilities.th).toBe(0);
+  expect(restricted.probabilities.en + restricted.probabilities.es).toBeCloseTo(1, 5);
+});
+
+test("maxSeconds trims the audio before inference", async () => {
+  const first3s = await lid.run(samples.subarray(0, 3 * 16000));
+  expect(await lid.run(samples, { maxSeconds: 3 })).toEqual(first3s);
+  // Counted in the input's sample rate, before resampling.
+  const at48k = resample(samples, 16000, 48000);
+  const trimmed = await lid.identify(at48k, { sampleRate: 48000, maxSeconds: 3 });
+  expect(trimmed.probability).toBeCloseTo((await lid.identify(at48k.subarray(0, 3 * 48000), { sampleRate: 48000 })).probability, 6);
+  await expect(lid.identify(samples, { maxSeconds: 0 })).rejects.toThrow("`maxSeconds` must be a positive number");
+});
+
+test("warmup runs a dummy inference", async () => {
+  await lid.warmup();
+  const warm = await LanguageIdentifier.load({ warmup: true });
+  try {
+    expect((await warm.identify(samples)).code).toBe("th");
+  } finally {
+    await warm.dispose();
+  }
+});
+
 test("accepts 16-bit PCM", async () => {
   const pcm = Int16Array.from(samples, (s) => Math.round(s * 32767));
   expect((await lid.identify(pcm)).code).toBe("th");
